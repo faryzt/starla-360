@@ -71,7 +71,7 @@ const server = http.createServer((req, res) => {
   const stat = fs.statSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=3600';
+  const cacheControl = 'no-store, no-cache, must-revalidate';
 
   const range = req.headers.range;
   if (range && stat.size > 0) {
