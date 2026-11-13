@@ -1,0 +1,15 @@
+{
+  "name": "starla-360",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node --check server.js && node --check assets/index-C0560NjH.js",
+    "lint": "node --check server.js && node --check assets/index-C0560NjH.js",
+    "test": "node --test tests/app.test.mjs"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
