@@ -5,6 +5,21 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { resolveSafePath } from '../server.js';
 import { evaluateQuizQuestion } from '../quizScoring.mjs';
+import {
+  isMobileEnvironment,
+  computeStageLayout,
+  mapClientPointToStage,
+  mapClientDeltaToStage,
+  mapRectPointToCanvas,
+  activateMobileFullscreenAndLandscape,
+} from '../mobileLandscape.mjs';
+import {
+  PJ_DATA,
+  HOTSPOTS_DATA,
+  QUIZ_DATA,
+  PROJECTS_DATA,
+  SANGGAR_VALUES_STEP2,
+} from '../culturalData.mjs';
 
 const ROOT = process.cwd();
 const BUNDLE_PATH = path.join(ROOT, 'assets', 'index-C0560NjH.js');
@@ -43,9 +58,8 @@ test('removed welcome buttons, home icon, fullscreen icon, and Fase C / Kelas te
   assert.equal(code.includes('EKPLORE 360° SENI RUPA FASE C'), false, 'old welcome badge should be replaced');
   assert.equal(code.includes('BUDAYA 360°'), true, 'new welcome badge BUDAYA 360° must exist');
   assert.equal(code.includes('Kembali ke Halaman Depan'), false, 'home button should be removed');
-  assert.equal(code.includes('requestFullscreen'), false, 'fullscreen toggle should be removed');
-  assert.equal(code.includes('Masuk Layar Penuh'), false, 'fullscreen title should be removed');
-  assert.equal(code.includes('Keluar Layar Penuh'), false, 'fullscreen exit title should be removed');
+  assert.equal(code.includes('Masuk Layar Penuh'), false, 'manual fullscreen enter button should be removed');
+  assert.equal(code.includes('Keluar Layar Penuh'), false, 'manual fullscreen exit button should be removed');
   assert.match(code, /BUDAYA 360°/);
   assert.equal(/fase\s*c/i.test(code), false, 'all Fase C text must be removed');
   assert.equal(/kelas/i.test(code), false, 'all Kelas text (including sekelas/kelasmu) must be removed');
@@ -265,4 +279,198 @@ test('fair quiz scoring logic awards proportional points for drag-drop and multi
   );
 });
 
+test('mobile detection and auto-landscape stage layout work accurately for mobile vs desktop', () => {
+  // Desktop 1440x900: never treated as mobile and never auto-rotated
+  const desktopMobile = isMobileEnvironment({
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+    maxTouchPoints: 0,
+    innerWidth: 1440,
+    innerHeight: 900,
+    hasCoarsePointer: false,
+  });
+  assert.equal(desktopMobile, false);
+  assert.deepEqual(
+    computeStageLayout({ innerWidth: 1440, innerHeight: 900, isMobile: desktopMobile }),
+    {
+      isMobile: false,
+      isPortrait: false,
+      autoRotateLandscape: false,
+      isMobileLandscape: false,
+      stageWidth: 1440,
+      stageHeight: 900,
+    }
+  );
 
+  // Mobile portrait 390x844: detected as mobile and auto-rotated to 844x390 landscape stage
+  const phonePortrait = isMobileEnvironment({
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148',
+    maxTouchPoints: 5,
+    innerWidth: 390,
+    innerHeight: 844,
+    hasCoarsePointer: true,
+  });
+  assert.equal(phonePortrait, true);
+  assert.deepEqual(
+    computeStageLayout({ innerWidth: 390, innerHeight: 844, isMobile: phonePortrait }),
+    {
+      isMobile: true,
+      isPortrait: true,
+      autoRotateLandscape: true,
+      isMobileLandscape: false,
+      stageWidth: 844,
+      stageHeight: 390,
+    }
+  );
+
+  // Mobile landscape 844x390 (or coarse touch viewport without mobile UA): stays unrotated landscape mobile
+  const phoneLandscape = isMobileEnvironment({
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    maxTouchPoints: 5,
+    innerWidth: 844,
+    innerHeight: 390,
+    hasCoarsePointer: true,
+  });
+  assert.equal(phoneLandscape, true);
+  assert.deepEqual(
+    computeStageLayout({ innerWidth: 844, innerHeight: 390, isMobile: phoneLandscape }),
+    {
+      isMobile: true,
+      isPortrait: false,
+      autoRotateLandscape: false,
+      isMobileLandscape: true,
+      stageWidth: 844,
+      stageHeight: 390,
+    }
+  );
+});
+
+test('rotated landscape pointer, analog delta, and drawing canvas coordinate mappings are exact', () => {
+  // Portrait viewport 390x844 rotated 90deg clockwise into 844x390 stage
+  // Top-left of landscape stage sits at physical (390, 0)
+  assert.deepEqual(
+    mapClientPointToStage(390, 0, { autoRotateLandscape: true, viewportWidth: 390 }),
+    { x: 0, y: 0 }
+  );
+  // Bottom-right of landscape stage sits at physical (0, 844)
+  assert.deepEqual(
+    mapClientPointToStage(0, 844, { autoRotateLandscape: true, viewportWidth: 390 }),
+    { x: 844, y: 390 }
+  );
+
+  // Analog delta: dragging physically DOWN (+dy) moves RIGHT (+dx) in rotated landscape;
+  // dragging physically RIGHT (+dx) moves UP (-dy) in rotated landscape.
+  assert.deepEqual(mapClientDeltaToStage(0, 30, { autoRotateLandscape: true }), { dx: 30, dy: -0 });
+  assert.deepEqual(mapClientDeltaToStage(30, 0, { autoRotateLandscape: true }), { dx: 0, dy: -30 });
+
+  // Rotated 16:9 canvas bounding rect (physical screen width=270, height=480)
+  const rotatedRect = { left: 60, right: 330, top: 180, bottom: 660, width: 270, height: 480 };
+  // Top-left of landscape canvas is physical (right=330, top=180)
+  assert.deepEqual(
+    mapRectPointToCanvas(330, 180, rotatedRect, 1280, 720, { autoRotateLandscape: true }),
+    { x: 0, y: 0 }
+  );
+  // Center of landscape canvas
+  assert.deepEqual(
+    mapRectPointToCanvas(195, 420, rotatedRect, 1280, 720, { autoRotateLandscape: true }),
+    { x: 640, y: 360 }
+  );
+});
+
+test('activateMobileFullscreenAndLandscape handles browser rejections safely without throwing', async () => {
+  let fsCalled = false;
+  let lockCalled = false;
+  const res = await activateMobileFullscreenAndLandscape({
+    doc: {
+      fullscreenElement: null,
+      documentElement: {
+        requestFullscreen: () => {
+          fsCalled = true;
+          return Promise.reject(new Error('NotAllowedError'));
+        },
+      },
+    },
+    win: {
+      screen: {
+        orientation: {
+          lock: () => {
+            lockCalled = true;
+            return Promise.reject(new Error('NotSupportedError'));
+          },
+        },
+      },
+    },
+  });
+  assert.equal(fsCalled, true);
+  assert.equal(lockCalled, true);
+  assert.equal(res.fullscreenAttempted, true);
+  assert.equal(res.orientationAttempted, true);
+});
+
+test('bundle implements #landscape-stage auto-rotation, mobile fullscreen gesture hook, and --app-w/--app-h layout', () => {
+  const code = fs.readFileSync(BUNDLE_PATH, 'utf8');
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  assert.match(html, /mobile-web-app-capable/);
+  assert.match(html, /index-C0560NjH\.js\?v=8/);
+  assert.equal(code.includes('id:"landscape-stage"'), true, 'root must render #landscape-stage');
+  assert.equal(code.includes('requestFullscreen'), true, 'auto mobile fullscreen hook must be present');
+  assert.equal(code.includes('orientation.lock("landscape")'), true, 'auto landscape lock must be present');
+  assert.equal(code.includes('--app-w'), true, 'stage CSS custom properties must be used');
+  assert.equal(code.includes('__stageAutoLandscape'), true, 'rotated coordinate mapping flag must exist');
+});
+
+test('culturalData and bundle contain credible UNESCO heritage facts, interactive hotspot challenges, and 100% Budaya Nusantara quizzes', () => {
+  const code = fs.readFileSync(BUNDLE_PATH, 'utf8');
+  const zones = ['batik', 'wayang', 'noken', 'pinisi', 'angklung'];
+  assert.equal(PJ_DATA.length, 5);
+  assert.equal(SANGGAR_VALUES_STEP2.length, 5);
+  assert.equal(PROJECTS_DATA.length, 6);
+
+  // Check credible UNESCO dates across the 5 islands
+  for (const unescoDate of [
+    '2 Oktober 2009',
+    '7 November 2003',
+    '4 Desember 2012',
+    '7 Desember 2017',
+    '16 November 2010',
+  ]) {
+    assert.equal(code.includes(unescoDate), true, `Bundle must include credible UNESCO date: ${unescoDate}`);
+  }
+
+  for (const z of zones) {
+    const hsList = HOTSPOTS_DATA[z];
+    assert.equal(hsList.length, 3, `Zone ${z} must have 3 hotspots`);
+    for (const hs of hsList) {
+      assert.ok(hs.shortDesc.length > 40);
+      assert.ok(hs.culturalMeaning.length > 30);
+      assert.ok(hs.interactiveQuestion.length > 20);
+      assert.equal(Array.isArray(hs.interactiveOptions), true);
+      assert.equal(hs.interactiveOptions.length, 2);
+      assert.equal(hs.interactiveAnswer, 0);
+      assert.ok(hs.interactiveFeedback.length > 30);
+    }
+
+    const qz = QUIZ_DATA[z];
+    assert.ok(qz, `Quiz for ${z} must exist`);
+    const totalPts = qz.questions.reduce((acc, q) => acc + q.points, 0);
+    assert.equal(totalPts, 100, `Quiz for ${z} must sum to 100 points`);
+  }
+
+  const sanggarPts = QUIZ_DATA.sanggar.questions.reduce((acc, q) => acc + q.points, 0);
+  assert.equal(sanggarPts, 100, 'Sanggar quiz must sum to 100 points');
+  assert.equal(code.includes('Tantangan Interaktif Sahabat Budaya'), true);
+  assert.equal(code.includes('Khazanah & Wawasan Budaya Nusantara'), true);
+  assert.equal(code.includes('Nilai luhur budaya Nusantara mana yang paling menginspirasimu?'), true);
+});
+
+test('island 360 engine uses 60fps direct DOM translate3d marker projection and exponential smoothing without React setState thrashing', () => {
+  const code = fs.readFileSync(BUNDLE_PATH, 'utf8');
+  const u1Idx = code.indexOf('u1=()=>{');
+  const k1Idx = code.indexOf('k1=()=>{');
+  const u1Body = code.slice(u1Idx, k1Idx);
+
+  assert.equal(u1Body.includes('1-Math.exp(-16*dt)'), true, 'must use frame-rate-independent exponential smoothing');
+  assert.equal(u1Body.includes('new us(500,60,40)'), true, 'must use smooth 60x40 sphere geometry');
+  assert.equal(u1Body.includes('mkRef.current'), true, 'must project 3D markers directly via mkRef DOM nodes');
+  assert.equal(u1Body.includes('syncKnob'), true, 'must update MLBB analog knob directly via DOM ref without setState');
+  assert.equal(u1Body.includes('now-lastSync>42'), false, 'old 23fps throttled React setState loop must be removed');
+});
