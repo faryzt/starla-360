@@ -279,7 +279,7 @@ test('fair quiz scoring logic awards proportional points for drag-drop and multi
   );
 });
 
-test('mobile detection and auto-landscape stage layout work accurately for mobile vs desktop', () => {
+test('mobile detection and responsive stage layout work accurately across desktop, mobile portrait, and mobile landscape without forced auto-rotation', () => {
   // Desktop 1440x900: never treated as mobile and never auto-rotated
   const desktopMobile = isMobileEnvironment({
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -301,7 +301,7 @@ test('mobile detection and auto-landscape stage layout work accurately for mobil
     }
   );
 
-  // Mobile portrait 390x844: detected as mobile and auto-rotated to 844x390 landscape stage
+  // Mobile portrait 390x844: detected as mobile portrait and stays naturally responsive (no forced 90deg auto-scale)
   const phonePortrait = isMobileEnvironment({
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148',
     maxTouchPoints: 5,
@@ -315,14 +315,14 @@ test('mobile detection and auto-landscape stage layout work accurately for mobil
     {
       isMobile: true,
       isPortrait: true,
-      autoRotateLandscape: true,
+      autoRotateLandscape: false,
       isMobileLandscape: false,
-      stageWidth: 844,
-      stageHeight: 390,
+      stageWidth: 390,
+      stageHeight: 844,
     }
   );
 
-  // Mobile landscape 844x390 (or coarse touch viewport without mobile UA): stays unrotated landscape mobile
+  // Mobile landscape 844x390: stays unrotated landscape mobile
   const phoneLandscape = isMobileEnvironment({
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
     maxTouchPoints: 5,
@@ -376,7 +376,7 @@ test('rotated landscape pointer, analog delta, and drawing canvas coordinate map
   );
 });
 
-test('activateMobileFullscreenAndLandscape handles browser rejections safely without throwing', async () => {
+test('activateMobileFullscreenAndLandscape does not trigger fullscreen or orientation lock on initial tap', async () => {
   let fsCalled = false;
   let lockCalled = false;
   const res = await activateMobileFullscreenAndLandscape({
@@ -385,7 +385,7 @@ test('activateMobileFullscreenAndLandscape handles browser rejections safely wit
       documentElement: {
         requestFullscreen: () => {
           fsCalled = true;
-          return Promise.reject(new Error('NotAllowedError'));
+          return Promise.resolve();
         },
       },
     },
@@ -394,28 +394,30 @@ test('activateMobileFullscreenAndLandscape handles browser rejections safely wit
         orientation: {
           lock: () => {
             lockCalled = true;
-            return Promise.reject(new Error('NotSupportedError'));
+            return Promise.resolve();
           },
         },
       },
     },
   });
-  assert.equal(fsCalled, true);
-  assert.equal(lockCalled, true);
-  assert.equal(res.fullscreenAttempted, true);
-  assert.equal(res.orientationAttempted, true);
+  assert.equal(fsCalled, false);
+  assert.equal(lockCalled, false);
+  assert.equal(res.fullscreenAttempted, false);
+  assert.equal(res.orientationAttempted, false);
 });
 
-test('bundle implements #landscape-stage auto-rotation, mobile fullscreen gesture hook, and --app-w/--app-h layout', () => {
+test('bundle disables startup auto-scale/fullscreen on tap while keeping responsive layout for all devices', () => {
   const code = fs.readFileSync(BUNDLE_PATH, 'utf8');
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   assert.match(html, /mobile-web-app-capable/);
-  assert.match(html, /index-C0560NjH\.js\?v=8/);
+  assert.doesNotMatch(html, /screen-orientation/);
+  assert.match(html, /index-C0560NjH\.js\?v=9/);
   assert.equal(code.includes('id:"landscape-stage"'), true, 'root must render #landscape-stage');
-  assert.equal(code.includes('requestFullscreen'), true, 'auto mobile fullscreen hook must be present');
-  assert.equal(code.includes('orientation.lock("landscape")'), true, 'auto landscape lock must be present');
-  assert.equal(code.includes('--app-w'), true, 'stage CSS custom properties must be used');
-  assert.equal(code.includes('__stageAutoLandscape'), true, 'rotated coordinate mapping flag must exist');
+  assert.equal(code.includes('requestFullscreen'), false, 'auto fullscreen on initial tap must be removed');
+  assert.equal(code.includes('orientation.lock("landscape")'), false, 'forced orientation lock on initial tap must be removed');
+  assert.equal(code.includes('translate(-50%, -50%) rotate(90deg)'), false, 'forced 90deg stage auto-rotation transform must be removed');
+  assert.equal(code.includes('data-portrait'), true, 'responsive portrait/landscape state must be tracked');
+  assert.equal(code.includes('@media (orientation: portrait) and (max-width: 900px)'), true, 'portrait responsive CSS rules must be present');
 });
 
 test('culturalData and bundle contain credible UNESCO heritage facts, interactive hotspot challenges, and 100% Budaya Nusantara quizzes', () => {

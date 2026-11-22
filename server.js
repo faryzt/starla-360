@@ -105,9 +105,22 @@ const server = http.createServer((req, res) => {
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  server.on('error', (err) => {
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+
   server.listen(PORT, HOST, () => {
     console.log(`Ekspedisi Rupa Nusantara listening on http://${HOST}:${PORT}`);
+    console.log(`  ➜  Local:   http://localhost:${PORT}/`);
   });
+
+  const shutdown = () => {
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1000).unref();
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 export default server;
