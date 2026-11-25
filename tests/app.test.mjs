@@ -406,18 +406,31 @@ test('activateMobileFullscreenAndLandscape does not trigger fullscreen or orient
   assert.equal(res.orientationAttempted, false);
 });
 
-test('bundle disables startup auto-scale/fullscreen on tap while keeping responsive layout for all devices', () => {
+test('bundle disables startup auto-scale/fullscreen on tap while keeping responsive layout, MULAI button without arrow, larger proportional mobile HUD controls, and wider popups/canvas', () => {
   const code = fs.readFileSync(BUNDLE_PATH, 'utf8');
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   assert.match(html, /mobile-web-app-capable/);
   assert.doesNotMatch(html, /screen-orientation/);
-  assert.match(html, /index-C0560NjH\.js\?v=9/);
+  assert.match(html, /index-C0560NjH\.js\?v=10/);
   assert.equal(code.includes('id:"landscape-stage"'), true, 'root must render #landscape-stage');
   assert.equal(code.includes('requestFullscreen'), false, 'auto fullscreen on initial tap must be removed');
   assert.equal(code.includes('orientation.lock("landscape")'), false, 'forced orientation lock on initial tap must be removed');
   assert.equal(code.includes('translate(-50%, -50%) rotate(90deg)'), false, 'forced 90deg stage auto-rotation transform must be removed');
   assert.equal(code.includes('data-portrait'), true, 'responsive portrait/landscape state must be tracked');
   assert.equal(code.includes('@media (orientation: portrait) and (max-width: 900px)'), true, 'portrait responsive CSS rules must be present');
+
+  // Welcome button uses "MULAI" with larger text and no arrow icon
+  assert.equal(code.includes('Mulai Ekspedisi'), false, 'Mulai Ekspedisi must be replaced with MULAI');
+  assert.equal(code.includes('children:S.jsx("span",{children:"MULAI"})'), true, 'Welcome start button must display MULAI without arrow icon');
+
+  // Mobile analog & Pulau / + / - controls are proportionally larger and responsive
+  assert.equal(code.includes('className:"nav-analog-knob"'), true, 'Analog knob must have responsive class');
+  assert.equal(code.includes('className:"nav-btn-pulau"'), true, 'Pulau button must have responsive class');
+  assert.equal(code.includes('className:"nav-btn-zoom"'), true, 'Zoom + and - buttons must have responsive class');
+
+  // Wider popups and drawing canvas
+  assert.equal(code.includes('popup-card-wide'), true, 'Popups must use wider responsive card class');
+  assert.equal(code.includes('maxWidth:"calc((var(--app-h, 100dvh) - 104px) * (16 / 9))"'), true, 'Drawing canvas frame must be wider');
 });
 
 test('culturalData and bundle contain credible UNESCO heritage facts, interactive hotspot challenges, and 100% Budaya Nusantara quizzes', () => {
